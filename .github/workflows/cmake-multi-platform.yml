@@ -1,10 +1,8 @@
-# This starter workflow is for a CMake project running on multiple platforms. There is a different starter workflow if you just want a single platform.
-# See: https://github.com/actions/starter-workflows/blob/main/ci/cmake-single-platform.yml
-name: CMake on multiple platforms
+name: CMake Build and Test
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
   pull_request:
     branches: [ "main" ]
 
@@ -13,29 +11,20 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     strategy:
-      # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations. Consider changing this to true when your workflow is stable.
       fail-fast: false
-
-      # Set up a matrix to run the following 3 configurations:
-      # 1. <Windows, Release, latest MSVC compiler toolchain on the default runner image, default generator>
-      # 2. <Linux, Release, latest GCC compiler toolchain on the default runner image, default generator>
-      # 3. <Linux, Release, latest Clang compiler toolchain on the default runner image, default generator>
-      #
-      # To add more build types (Release, Debug, RelWithDebInfo, etc.) customize the build_type list.
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        build_type: [Release]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        build_type: [Debug, Release]
         c_compiler: [gcc, clang, cl]
         include:
           - os: windows-latest
             c_compiler: cl
-            cpp_compiler: cl
           - os: ubuntu-latest
             c_compiler: gcc
-            cpp_compiler: g++
           - os: ubuntu-latest
             c_compiler: clang
-            cpp_compiler: clang++
+          - os: macos-latest
+            c_compiler: clang
         exclude:
           - os: windows-latest
             c_compiler: gcc
@@ -43,33 +32,187 @@ jobs:
             c_compiler: clang
           - os: ubuntu-latest
             c_compiler: cl
+          - os: macos-latest
+            c_compiler: gcc
+          - os: macos-latest
+            c_compiler: cl
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up build environment (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake
+        # 安装中文locale支持
+        sudo apt-get install -y locales-all
+
+    - name: Set up build environment (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        # macOS通常已经包含了必要的工具
+        brew install cmake
+
+    - name: Set up MSVC (Windows)
+      if: runner.os == 'Windows' && matrix.c_compiler == 'cl'
+      uses: ilammy/msvc-dev-cmd@v1
 
     - name: Set reusable strings
-      # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
       id: strings
       shell: bash
       run: |
         echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
 
     - name: Configure CMake
-      # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
-      # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: >
-        cmake -B ${{ steps.strings.outputs.build-output-dir }}
-        -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
-        -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
-        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-        -S ${{ github.workspace }}
+      run: |
+        cmake -B ${{ steps.strings.outputs.build-output-dir }} \
+          -DCMAKE_C_COMPILER=${{ matrix.c_compiler }} \
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+          -S ${{ github.workspace }}
 
     - name: Build
-      # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
-      run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
+      run: |
+        cmake --build ${{ steps.strings.outputs.build-output-dir }} \
+          --config ${{ matrix.build_type }} \
+          --parallel
 
-    - name: Test
+    - name: List build outputs (Debug)
+      shell: bash
+      run: |
+        echo "Build directory contents:"
+        find ${{ steps.strings.outputs.build-output-dir }} -type f -name "*" | head -20
+
+    - name: Run Tests
       working-directory: ${{ steps.strings.outputs.build-output-dir }}
-      # Execute tests defined by the CMake configuration. Note that --build-config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
-      # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
-      run: ctest --build-config ${{ matrix.build_type }}
+      shell: bash
+      run: |
+        # 在Windows上设置UTF-8编码
+        if [ "$RUNNER_OS" == "Windows" ]; then
+          export LANG=zh_CN.UTF-8
+          export LC_ALL=zh_CN.UTF-8
+        fi
+        
+        # 在Linux/macOS上设置UTF-8编码
+        if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
+          export LANG=zh_CN.UTF-8
+          export LC_ALL=zh_CN.UTF-8
+        fi
+        
+        # 运行CTest
+        ctest --build-config ${{ matrix.build_type }} --output-on-failure --verbose
+
+    - name: Run direct test executable (fallback)
+      if: failure()
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      shell: bash
+      run: |
+        # 如果CTest失败，尝试直接运行测试可执行文件
+        echo "CTest failed, trying to run test executable directly..."
+        
+        if [ "$RUNNER_OS" == "Windows" ]; then
+          if [ -f "./Debug/test_parking_data.exe" ]; then
+            ./Debug/test_parking_data.exe
+          elif [ -f "./test_parking_data.exe" ]; then
+            ./test_parking_data.exe
+          fi
+        else
+          if [ -f "./test_parking_data" ]; then
+            ./test_parking_data
+          fi
+        fi
+
+    - name: Run demo programs
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      shell: bash
+      run: |
+        echo "Running demo programs..."
+        
+        if [ "$RUNNER_OS" == "Windows" ]; then
+          # Windows executables
+          if [ -f "./Debug/demo_parking.exe" ]; then
+            echo "Running demo_parking..."
+            echo "n" | ./Debug/demo_parking.exe || true
+          fi
+          if [ -f "./Debug/service_demo.exe" ]; then
+            echo "Running service_demo..."
+            echo "n" | ./Debug/service_demo.exe || true
+          fi
+        else
+          # Linux/macOS executables
+          if [ -f "./demo_parking" ]; then
+            echo "Running demo_parking..."
+            echo "n" | ./demo_parking || true
+          fi
+          if [ -f "./service_demo" ]; then
+            echo "Running service_demo..."
+            echo "n" | ./service_demo || true
+          fi
+        fi
+
+    - name: Upload build artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts-${{ matrix.os }}-${{ matrix.c_compiler }}-${{ matrix.build_type }}
+        path: |
+          ${{ steps.strings.outputs.build-output-dir }}/**/*.exe
+          ${{ steps.strings.outputs.build-output-dir }}/**/test_parking_data
+          ${{ steps.strings.outputs.build-output-dir }}/**/demo_parking
+          ${{ steps.strings.outputs.build-output-dir }}/**/service_demo
+          ${{ steps.strings.outputs.build-output-dir }}/**/Parking-System
+        retention-days: 7
+
+  # 代码质量检查任务
+  code-quality:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Install analysis tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cppcheck clang-tools
+
+    - name: Run cppcheck
+      run: |
+        cppcheck --enable=all --std=c90 --platform=unix64 \
+          --suppress=missingIncludeSystem \
+          --suppress=unusedFunction \
+          --suppress=missingInclude \
+          --error-exitcode=1 \
+          src/ tests/ demos/
+
+    - name: Check code formatting (if clang-format available)
+      continue-on-error: true
+      run: |
+        if command -v clang-format >/dev/null 2>&1; then
+          find src tests demos -name "*.c" -o -name "*.h" | \
+            xargs clang-format --dry-run --Werror --style=file || true
+        fi
+
+  # 文档检查任务
+  documentation:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Check README and documentation
+      run: |
+        # 检查README.md是否存在
+        test -f README.md || (echo "README.md not found" && exit 1)
+        
+        # 检查基本文档文件
+        test -f CMakeLists.txt || (echo "CMakeLists.txt not found" && exit 1)
+        
+        # 检查源代码目录结构
+        test -d src || (echo "src directory not found" && exit 1)
+        test -d tests || (echo "tests directory not found" && exit 1)
+        test -d demos || (echo "demos directory not found" && exit 1)
+        
+        echo "Documentation check passed!"
