@@ -1,0 +1,22 @@
+CompileFlags:
+  Add: 
+    - -Wall
+    - -Wextra
+    - -std=c90
+    - -pedantic
+    - /TC
+
+Diagnostics:
+  ClangTidy:
+    Add: 
+      - readability-*
+      - bugprone-*
+      - performance-*
+    Remove:
+      - modernize-use-trailing-return-type
+
+Index:
+  Background: Build
+
+Style:
+  FullyQualifiedNamespaces: false
