@@ -1,4 +1,4 @@
-name: CMake Build and Test
+name: CMake Build, Test and Quality Check
 
 on:
   push:
@@ -45,15 +45,14 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential cmake
+        sudo apt-get install -y build-essential cmake tree
         # 安装中文locale支持
         sudo apt-get install -y locales-all
 
     - name: Set up build environment (macOS)
       if: runner.os == 'macOS'
       run: |
-        # macOS通常已经包含了必要的工具
-        brew install cmake
+        brew install cmake tree
 
     - name: Set up MSVC (Windows)
       if: runner.os == 'Windows' && matrix.c_compiler == 'cl'
@@ -78,93 +77,85 @@ jobs:
           --config ${{ matrix.build_type }} \
           --parallel
 
-    - name: List build outputs (Debug)
+    - name: List build outputs
       shell: bash
       run: |
         echo "Build directory contents:"
-        find ${{ steps.strings.outputs.build-output-dir }} -type f -name "*" | head -20
+        if [ "$RUNNER_OS" == "Windows" ]; then
+          dir /s ${{ steps.strings.outputs.build-output-dir }}
+        else
+          tree ${{ steps.strings.outputs.build-output-dir }}
+        fi
 
-    - name: Run Tests
+    - name: Run Tests with CTest
       working-directory: ${{ steps.strings.outputs.build-output-dir }}
       shell: bash
       run: |
-        # 在Windows上设置UTF-8编码
-        if [ "$RUNNER_OS" == "Windows" ]; then
-          export LANG=zh_CN.UTF-8
-          export LC_ALL=zh_CN.UTF-8
-        fi
-        
-        # 在Linux/macOS上设置UTF-8编码
-        if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
-          export LANG=zh_CN.UTF-8
-          export LC_ALL=zh_CN.UTF-8
-        fi
+        # 设置UTF-8编码以支持中文输出
+        export LANG=zh_CN.UTF-8
+        export LC_ALL=zh_CN.UTF-8
         
         # 运行CTest
         ctest --build-config ${{ matrix.build_type }} --output-on-failure --verbose
 
-    - name: Run direct test executable (fallback)
+    - name: Run direct test executables (fallback)
       if: failure()
       working-directory: ${{ steps.strings.outputs.build-output-dir }}
       shell: bash
       run: |
-        # 如果CTest失败，尝试直接运行测试可执行文件
-        echo "CTest failed, trying to run test executable directly..."
-        
-        if [ "$RUNNER_OS" == "Windows" ]; then
-          if [ -f "./Debug/test_parking_data.exe" ]; then
-            ./Debug/test_parking_data.exe
-          elif [ -f "./test_parking_data.exe" ]; then
-            ./test_parking_data.exe
+        echo "CTest failed, trying to run test executables directly..."
+        for test_name in test_parking_data test_parking_service test_parking_ui; do
+          echo "--- Running ${test_name} ---"
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            if [ -f "./${{ matrix.build_type }}/${test_name}.exe" ]; then
+              ./${{ matrix.build_type }}/${test_name}.exe
+            elif [ -f "./${test_name}.exe" ]; then
+              ./${test_name}.exe
+            fi
+          else
+            if [ -f "./${test_name}" ]; then
+              ./${test_name}
+            fi
           fi
-        else
-          if [ -f "./test_parking_data" ]; then
-            ./test_parking_data
-          fi
-        fi
+        done
 
     - name: Run demo programs
       working-directory: ${{ steps.strings.outputs.build-output-dir }}
       shell: bash
+      timeout-minutes: 1 # 添加超时以防程序挂起
       run: |
         echo "Running demo programs..."
-        
-        if [ "$RUNNER_OS" == "Windows" ]; then
-          # Windows executables
-          if [ -f "./Debug/demo_parking.exe" ]; then
-            echo "Running demo_parking..."
-            echo "n" | ./Debug/demo_parking.exe || true
+        # FIX: Corrected demo program names
+        demos=("data_layer_demo" "service_demo")
+        for demo in "${demos[@]}"; do
+          echo "--- Running ${demo} ---"
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            if [ -f "./${{ matrix.build_type }}/${demo}.exe" ]; then
+              echo "n" | ./${{ matrix.build_type }}/${demo}.exe || true
+            fi
+          else
+            if [ -f "./${demo}" ]; then
+              echo "n" | ./${demo} || true
+            fi
           fi
-          if [ -f "./Debug/service_demo.exe" ]; then
-            echo "Running service_demo..."
-            echo "n" | ./Debug/service_demo.exe || true
-          fi
-        else
-          # Linux/macOS executables
-          if [ -f "./demo_parking" ]; then
-            echo "Running demo_parking..."
-            echo "n" | ./demo_parking || true
-          fi
-          if [ -f "./service_demo" ]; then
-            echo "Running service_demo..."
-            echo "n" | ./service_demo || true
-          fi
-        fi
+        done
 
     - name: Upload build artifacts
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: build-artifacts-${{ matrix.os }}-${{ matrix.c_compiler }}-${{ matrix.build_type }}
+        # FIX: Corrected paths to include all executables
         path: |
           ${{ steps.strings.outputs.build-output-dir }}/**/*.exe
-          ${{ steps.strings.outputs.build-output-dir }}/**/test_parking_data
-          ${{ steps.strings.outputs.build-output-dir }}/**/demo_parking
-          ${{ steps.strings.outputs.build-output-dir }}/**/service_demo
           ${{ steps.strings.outputs.build-output-dir }}/**/Parking-System
+          ${{ steps.strings.outputs.build-output-dir }}/**/test_parking_data
+          ${{ steps.strings.outputs.build-output-dir }}/**/test_parking_service
+          ${{ steps.strings.outputs.build-output_dir }}/**/test_parking_ui
+          ${{ steps.strings.outputs.build-output-dir }}/**/data_layer_demo
+          ${{ steps.strings.outputs.build-output-dir }}/**/service_demo
         retention-days: 7
 
-  # 代码质量检查任务
   code-quality:
     runs-on: ubuntu-latest
     
@@ -186,15 +177,15 @@ jobs:
           --error-exitcode=1 \
           src/ tests/ demos/
 
-    - name: Check code formatting (if clang-format available)
+    - name: Check code formatting
       continue-on-error: true
       run: |
         if command -v clang-format >/dev/null 2>&1; then
+          # FIX: Removed `|| true` to allow the step to correctly report errors
           find src tests demos -name "*.c" -o -name "*.h" | \
-            xargs clang-format --dry-run --Werror --style=file || true
+            xargs clang-format --dry-run --Werror --style=file
         fi
 
-  # 文档检查任务
   documentation:
     runs-on: ubuntu-latest
     
@@ -202,17 +193,11 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Check README and documentation
+    - name: Check documentation and directory structure
       run: |
-        # 检查README.md是否存在
         test -f README.md || (echo "README.md not found" && exit 1)
-        
-        # 检查基本文档文件
         test -f CMakeLists.txt || (echo "CMakeLists.txt not found" && exit 1)
-        
-        # 检查源代码目录结构
         test -d src || (echo "src directory not found" && exit 1)
         test -d tests || (echo "tests directory not found" && exit 1)
         test -d demos || (echo "demos directory not found" && exit 1)
-        
-        echo "Documentation check passed!"
+        echo "Documentation and structure check passed!"
