@@ -70,7 +70,6 @@ typedef struct ParkingSlot {
   time_t entry_time;                   // 入场时间
   time_t exit_time;                    // 出场时间
   ParkingStatus status;                // 当前状态 (FREE_STATUS / OCCUPIED_STATUS)
-  PaymentRecord *payment_head;         // 缴费记录链表头
   struct ParkingSlot *next;            // 指向下一个车位节点
 } ParkingSlot;
 
@@ -105,7 +104,6 @@ typedef struct ParkingLot {
 | | 车辆入场/出场 | 分配车位时记录入场时间，释放车位时计算费用并清空信息。 |
 | | 多条件查询 | 支持按车位编号、车牌号、车主姓名进行精确查找。 |
 | **计费管理** | 访客计费 | 按小时计费（10元/小时），不足1小时按1小时计算，仅限9:00-17:00。 |
-| | 居民缴费 | 按月缴费（200元/月），通过`PaymentRecord`链表记录缴费历史。 |
 | **统计分析** | 占用率/收入统计 | 实时计算车位占用率、当日和当月收入。 |
 | | 停车数量统计 | 可按日、按月统计居民和访客的停车数量。 |
 | **数据管理** | 数据保存/加载 | 可将整个`ParkingLot`链表数据序列化到文本文件，或从文件重建。 |
@@ -116,7 +114,7 @@ typedef struct ParkingLot {
 
 - **编码规范**: 遵循统一的命名约定和代码风格，所有函数和结构体都有Doxygen风格的详细注释。
 - **测试驱动开发 (TDD)**: 在开发数据层核心功能时，采用测试驱动的模式，先编写测试用例，再进行功能开发。
-- **自动化测试报告**: 测试程序`test_parking_data`覆盖了数据层所有核心API，测试结果如下：
+- **自动化测试报告**: 项目为数据层、服务层和UI层均配备了单元测试 (`test_parking_data`, `test_parking_service`, `test_parking_ui`)，覆盖了所有核心API。以下为数据层测试报告示例：
 
 ```text
 停车管理系统数据结构测试
@@ -129,23 +127,22 @@ typedef struct ParkingLot {
 ## 7. 目录与文件结构
 
 ```
-C-Final-Design/
+Parking-System/
 ├── src/                    # 核心源代码
 │   ├── main.c              # 主程序入口，负责调用UI层
 │   ├── parking_data.h/c    # 数据层：数据结构与原子操作
 │   ├── parking_service.h/c # 服务层：业务逻辑与错误处理
 │   └── parking_ui.h/c      # UI层：用户界面与交互
 ├── tests/                  # 自动化测试
-│   └── test_parking_data.c
+│   ├── test_parking_data.c
+│   ├── test_parking_service.c
+│   └── test_parking_ui.c
 ├── demos/                  # 演示程序
 │   ├── demo_parking.c      # 数据层功能演示
 │   └── service_demo.c      # 服务层功能演示
-├── demand/                 # 需求文档
-├── solution_md/            # 设计方案文档
+├── vendor/                 # 第三方库
+│   └── cmocka/             # cmocka单元测试框架
 ├── CMakeLists.txt          # CMake构建配置
-├── CMakePresets.json       # CMake预设配置
-├── PROJECT_SUMMARY.md      # 项目总结报告
-├── REFACTORING_REPORT.md   # 重构过程报告
 └── README.md               # 本文档
 ```
 
@@ -178,7 +175,7 @@ cmake --build .
 编译成功后，可执行文件位于`build/Debug`或`build`目录下。
 
 - **主程序**: `Parking-System.exe` (Windows) / `Parking-System` (Linux/macOS)
-- **测试程序**: `test_parking_data.exe` / `test_parking_data`
+- **测试程序**: `test_parking_data.exe`, `test_parking_service.exe`, `test_parking_ui.exe` (Windows) / `test_parking_data`, `test_parking_service`, `test_parking_ui` (Linux/macOS)
 - **演示程序**: `demo_parking.exe`, `service_demo.exe`
 
 ## 9. 使用说明
@@ -192,12 +189,11 @@ cmake --build .
 3.  车辆出场 (释放车位)
 4.  查询车位信息
 5.  显示车位列表
-6.  缴费管理
-7.  统计信息
-8.  保存数据到文件
-9.  从文件加载数据
-10. 运行内置演示程序
-0.  退出系统
+6.  统计信息
+7.  保存数据到文件
+8.  从文件加载数据
+9.  运行内置演示程序
+0.  退出
 ======================================
 请选择操作: 
 ```
@@ -205,12 +201,12 @@ cmake --build .
 ### 9.2 快速入门
 
 1. **启动**: 运行主程序`Parking-System`。
-2. **体验**: 选择菜单`10`运行内置演示，快速了解系统功能。
+2. **体验**: 选择菜单`9`运行内置演示，快速了解系统功能。
 3. **初始化**: 选择菜单`1`添加一些停车位。
 4. **使用**: 使用菜单`2`和`3`模拟车辆的入场和出场。
 5. **查询**: 使用菜单`4`和`5`查看车位状态。
-6. **分析**: 使用菜单`7`查看统计报告。
-7. **持久化**: 退出前使用菜单`8`保存数据，下次启动时使用菜单`9`恢复。
+6. **分析**: 使用菜单`6`查看统计报告。
+7. **持久化**: 退出前使用菜单`7`保存数据，下次启动时使用菜单`8`恢复。
 
 ## 10. 开发团队
 
@@ -218,6 +214,6 @@ cmake --build .
 
 ## 11. 版本与许可证
 
-- **当前版本**: 0.1.4
-- **发布日期**: 2025-06-24
+- **当前版本**: 0.1.6
+- **发布日期**: 2025-06-27
 - **许可证**: 本项目遵循 [MIT许可证](https://opensource.org/licenses/MIT)。
