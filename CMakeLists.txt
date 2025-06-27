@@ -16,7 +16,7 @@
 #                            项目基本信息定义
 # ==========================================================================
 # 设置所需的 CMake 最低版本。
-cmake_minimum_required(VERSION 3.10.0)
+cmake_minimum_required(VERSION 3.14)
 # 定义项目名称、版本和所用编程语言。
 project(Parking-System VERSION 0.1.6 LANGUAGES C)
 
