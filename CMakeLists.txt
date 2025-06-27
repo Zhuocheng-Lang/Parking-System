@@ -34,13 +34,15 @@ add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 
 # 根据不同的编译器类型添加特定的编译选项。
 if(MSVC)
-  # 禁用 MSVC 的 4996 警告，这与 _CRT_SECURE_NO_WARNINGS 作用类似。
-  add_compile_options(/wd4996)
+    # 告诉 MSVC 编译器源文件是 UTF-8 编码。
+    add_compile_options(/utf-8)
+    # 禁用 MSVC 的 4996 警告，这与 _CRT_SECURE_NO_WARNINGS 作用类似。
+    add_compile_options(/wd4996)
 else()
-  # 为 GCC/Clang 等编译器明确指定 C90 标准。
-  add_compile_options(-std=c90)
-  # 禁用关于使用已弃用声明的警告（例如，在 cmocka 中可能出现）。
-  add_compile_options(-Wno-deprecated-declarations)
+    # 为 GCC/Clang 等编译器明确指定 C90 标准。
+    add_compile_options(-std=c90)
+    # 禁用关于使用已弃用声明的警告（例如，在 cmocka 中可能出现）。
+    add_compile_options(-Wno-deprecated-declarations)
 endif()
 
 # ==========================================================================
